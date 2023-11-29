@@ -32,6 +32,7 @@ class TaskGenerator:
         # sub directory of the dataset, 'dev', 'val', 'test'
         self.sub_dir = "val" if kwargs.get('sub_dir') is None else kwargs.get('sub_dir')
         
+        # TODO: Read start position from cache file
         self.start = 0 if kwargs.get('start') is None else kwargs.get('start')
         self.end = kwargs.get('end')
         self.subject_names = SUBJECT_NAMES_MAP[self.dataset]
@@ -40,6 +41,8 @@ class TaskGenerator:
         if self.log_dir and not os.path.exists(self.log_dir):
             os.mkdir(self.log_dir)
         
+        self.subject_ptr = 0
+        self.problem_ptr = 0
         self.total_task_num = self._get_total_task_num()
         
         self.pbar = None
@@ -49,7 +52,7 @@ class TaskGenerator:
     def _read_csv(self, csv_path, dev=False):
         if self.dataset == 'ceval':
             drop_col = ['id', 'explanation'] if dev else ['id']
-            df = pd.read_csv(csv_path).drop(drop_col)
+            df = pd.read_csv(csv_path).drop(drop_col, axis=1)
         elif self.dataset == 'mmlu':
             df = pd.read_csv(csv_path, names=['question', 'A', 'B', 'C', 'D', 'answer'])
         return df
@@ -58,11 +61,15 @@ class TaskGenerator:
         '''returns the total number of tasks'''
         _total_task_num = 0
         _tasks_dir = os.path.join(self.dataset_dir, self.sub_dir)
-        for subject_name in self.subject_names:
+        for i, subject_name in enumerate(self.subject_names):
             _csv_path = os.path.join(_tasks_dir, f"{subject_name}_{self.sub_dir}.csv")
             _tmp_df = self._read_csv(_csv_path)
+            if self.start >= _total_task_num and self.start < (_total_task_num + _tmp_df.shape[0]):
+                self.subject_ptr = i
+                self.problem_ptr = self.start - _total_task_num
             _total_task_num += _tmp_df.shape[0]
         return _total_task_num
     
     def __next__(self):
+        
         pass
