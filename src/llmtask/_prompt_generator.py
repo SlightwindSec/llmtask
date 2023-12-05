@@ -4,6 +4,8 @@ import pandas as pd
 import tqdm
 
 from ._subject_names import SUPPORTED_DATASETS, SUBJECT_NAMES_MAP
+from ._utils import gen_prompt, format_example
+
 
 
 class TaskGenerator:
@@ -49,8 +51,8 @@ class TaskGenerator:
         
         self.prompt_prefix = None
         
-        self.subject_train_df = self._load_subject_train_df()
-        self.subject_test_df = self._load_subject_test_df()
+        self.subject_dev_df = self._load_subject_df(dev=True)
+        self.subject_val_df = self._load_subject_df()
         
         self.pbar = None
         if kwargs.get('pbar') is not False:
@@ -79,25 +81,20 @@ class TaskGenerator:
         return df
 
 
-    def _load_subject_train_df(self, train=False):
-        _sub_dir = "dev" if train else self.sub_dir
+    def _load_subject_df(self, dev=False):
+        _sub_dir = "dev" if dev else self.sub_dir
         subject_name = self.subject_names[self.subject_ptr]
         _tasks_dir = os.path.join(self.dataset_dir, _sub_dir)
-        _dev_csv_path = os.path.join(_tasks_dir, f"{subject_name}_{_sub_dir}.csv")
-        return self._read_csv(csv_path, train)
-
-
-    def _load_subject_test_df(self):
-        subject_name = self.subject_names[self.subject_ptr]
-        _tasks_dir = os.path.join(self.dataset_dir, self.sub_dir)
-        _csv_path = os.path.join(_tasks_dir, f"{subject_name}_{self.sub_dir}.csv")
-        return self._read_csv(csv_path)
+        _csv_path = os.path.join(_tasks_dir, f"{subject_name}_{_sub_dir}.csv")
+        return self._read_csv(_csv_path, dev)
     
     
     def _construct_prompt_prefix(self):
         '''Construct a N-Shot prompt prefix from the `dev` subdirectory'''
-        pass
-        
+        subject_name = self.subject_names[self.subject_ptr]
+        prompt_prefix = gen_prompt(self.subject_dev_df, subject_name, self.max_shot)
+        return prompt_prefix
+    
     
     def _get_total_task_num(self):
         '''returns the total number of tasks'''
@@ -112,6 +109,28 @@ class TaskGenerator:
             _total_task_num += _tmp_df.shape[0]
         return _total_task_num
     
+    def __iter__(self):
+        return self
+    
     def __next__(self):
+        if self.subject_ptr >= len(self.subject_names):
+            if self.pbar:
+                self.pbar.close()
+            raise StopIteration
         
-        pass
+        prompt_prefix = self._construct_prompt_prefix()
+        prompt_problem = format_example(self.subject_val_df, self.problem_ptr, False)
+        
+        prompt = prompt_prefix + prompt_problem
+        
+        self.problem_ptr += 1
+        if self.problem_ptr >= self.subject_val_df.shape[0]:
+            self.subject_ptr += 1
+            self.problem_ptr = 0
+            if self.subject_ptr < len(self.subject_names):
+                self.subject_dev_df = self._load_subject_df(dev=True)
+                self.subject_val_df = self._load_subject_df()
+            
+        if self.pbar:
+            self.pbar.update(1)
+        return prompt
