@@ -43,6 +43,9 @@ class TaskGenerator:
         if self.log_dir and not os.path.exists(self.log_dir):
             os.mkdir(self.log_dir)
         
+        self.answer_log = kwargs.get('answer_log')
+        
+        
         self.subject_idx = 0
         self.problem_idx = 0
         
@@ -115,15 +118,27 @@ class TaskGenerator:
             _total_task_num += _tmp_df.shape[0]
         return _total_task_num
     
+    
     def feedback(self, answer):
         self.feedback_flag = False
         model_choice = parse_answer(answer)
         result = {"subject_idx": self.subject_idx, "problem_idx": self.problem_idx, "truth": self.current_problem_answer, "guess": model_choice}
+        
+        if self.answer_log:
+            with open(self.answer_log, 'r') as f:
+                header = f.read().split('\n')[0]
+            if not header:
+                with open(self.answer_log, 'a') as f:
+                    f.write("subject_idx, problem_idx, truth, guess")
+            with open(self.answer_log, 'a') as f:
+                f.write(", ".join(self.subject_idx, self.problem_idx, self.current_problem_answer, model_choice))
+        
         self.infer_result.append(result)
     
     
     def __iter__(self):
         return self
+    
     
     def __next__(self):
         if self.feedback_flag:
