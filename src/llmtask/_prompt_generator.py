@@ -5,7 +5,7 @@ import tqdm
 
 from ._subject_names import SUPPORTED_DATASETS, SUBJECT_NAMES_MAP
 from ._utils import gen_prompt, format_example, parse_answer
-from ._error import FeedbackNotCalledError
+from .error import FeedbackNotCalledError
 
 
 
@@ -43,7 +43,7 @@ class TaskGenerator:
         if self.log_dir and not os.path.exists(self.log_dir):
             os.mkdir(self.log_dir)
         
-        self.answer_log = kwargs.get('answer_log')
+        self.answer_log = kwargs.get('csv')
         
         
         self.subject_idx = 0
@@ -52,7 +52,7 @@ class TaskGenerator:
         self.infer_result = []
         
         self._load_cache()
-        
+
         self.total_task_num = self._get_total_task_num()
         
         self.prompt_prefix = None
@@ -64,9 +64,9 @@ class TaskGenerator:
         if kwargs.get('pbar') is not False:
             self.pbar = tqdm.tqdm(total=self.total_task_num, initial=self.start)
         
-        self.current_problem_answer = None
+        self.truth = None
         self.feedback_flag = False
-
+        
 
     def _load_cache(self):
         if not self.log_dir:
@@ -122,18 +122,32 @@ class TaskGenerator:
     def feedback(self, answer):
         self.feedback_flag = False
         model_choice = parse_answer(answer)
-        result = {"subject_idx": self.subject_idx, "problem_idx": self.problem_idx, "truth": self.current_problem_answer, "guess": model_choice}
-        
+        subject_name = self.subject_names[self.subject_idx]
+        result = {"subject": subject_name, "problem_idx": self.problem_idx, "truth": self.truth, "guess": model_choice}
+
         if self.answer_log:
-            with open(self.answer_log, 'r') as f:
-                header = f.read().split('\n')[0]
-            if not header:
+            is_exist = os.path.exists(self.answer_log)
+            if is_exist:
+                with open(self.answer_log, 'r') as f:
+                    header = f.read().split('\n')[0]
+            if not is_exist or not header:
                 with open(self.answer_log, 'a') as f:
-                    f.write("subject_idx, problem_idx, truth, guess")
+                    f.write("subject, problem_idx, truth, guess\n")
             with open(self.answer_log, 'a') as f:
-                f.write(", ".join(self.subject_idx, self.problem_idx, self.current_problem_answer, model_choice))
+                f.write(f"{subject_name}, {self.problem_idx}, {self.truth}, {model_choice}\n")
         
         self.infer_result.append(result)
+        
+        self.problem_idx += 1
+        if self.problem_idx >= self.subject_val_df.shape[0]:
+            self.subject_idx += 1
+            self.problem_idx = 0
+            if self.subject_idx < len(self.subject_names):
+                self.subject_dev_df = self._load_subject_df(dev=True)
+                self.subject_val_df = self._load_subject_df()
+            
+        if self.pbar:
+            self.pbar.update(1)
     
     
     def __iter__(self):
@@ -152,18 +166,20 @@ class TaskGenerator:
         
         prompt_prefix = self._construct_prompt_prefix()
         prompt_problem = format_example(self.subject_val_df, self.problem_idx, False)
-        self.current_problem_answer = self.subject_val_df.answer.iloc[self.problem_idx]
+        self.truth = self.subject_val_df.answer.iloc[self.problem_idx]
         
         prompt = prompt_prefix + prompt_problem
-        
-        self.problem_idx += 1
-        if self.problem_idx >= self.subject_val_df.shape[0]:
-            self.subject_idx += 1
-            self.problem_idx = 0
-            if self.subject_idx < len(self.subject_names):
-                self.subject_dev_df = self._load_subject_df(dev=True)
-                self.subject_val_df = self._load_subject_df()
-            
-        if self.pbar:
-            self.pbar.update(1)
+
         return prompt
+
+    def summary(self):
+        subjects_acc = {}
+        category_acc = {}
+        for res in self.infer_result:
+            subject_name, _, x, y = res
+            if subject_name in subjects_acc:
+                subjects_acc[subject_name] += int(x == y)
+            else:
+                subjects_acc[subject_name]  = int(x == y)
+            
+    
