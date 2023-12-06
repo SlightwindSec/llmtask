@@ -1,4 +1,5 @@
 import os
+import json
 
 import pandas as pd
 import tqdm
@@ -31,6 +32,9 @@ class TaskGenerator:
         self.dataset_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'datasets', str(dataset))
         if not os.path.exists(self.dataset_dir):
             raise ValueError(f'Dataset dir {self.dataset_dir} does not exist.')
+        
+        
+        self.subject_mapping = self._load_subject_mapping()
         
         # sub directory of the dataset, 'dev', 'val', 'test'
         self.sub_dir = "val" if kwargs.get('sub_dir') is None else kwargs.get('sub_dir')
@@ -67,7 +71,12 @@ class TaskGenerator:
         self.truth = None
         self.feedback_flag = False
         
-
+    def _load_subject_mapping(self):
+        with open(os.path.join(self.dataset_dir, "subject_mapping.json"), "r") as f:
+            mapping = json.load(f)
+        return mapping
+    
+    
     def _load_cache(self):
         if not self.log_dir:
             return
@@ -145,7 +154,7 @@ class TaskGenerator:
             if self.subject_idx < len(self.subject_names):
                 self.subject_dev_df = self._load_subject_df(dev=True)
                 self.subject_val_df = self._load_subject_df()
-            
+        
         if self.pbar:
             self.pbar.update(1)
     
@@ -172,14 +181,26 @@ class TaskGenerator:
 
         return prompt
 
-    def summary(self):
-        subjects_acc = {}
-        category_acc = {}
+    def summary(self, filename=None, subject_details=False):
+        subjects_total_counter = {}
+        category_total_counter = {}
+        
+        subjects_correct_counter = {}
+        category_correct_counter = {}
+        
         for res in self.infer_result:
-            subject_name, _, x, y = res
-            if subject_name in subjects_acc:
-                subjects_acc[subject_name] += int(x == y)
-            else:
-                subjects_acc[subject_name]  = int(x == y)
+            subject_name, x, y = res.get("subject"), res.get("truth"), res.get("guess")
+            category = self.subject_mapping[subject_name]
             
-    
+            subjects_total_counter[subject_name] = subjects_total_counter.setdefault(subject_name, 0) + 1
+            category_total_counter[category]     = category_total_counter.setdefault(category,     0) + 1
+            
+            subjects_correct_counter[subject_name] = subjects_correct_counter.setdefault(subject_name, 0) + int(x == y)
+            category_correct_counter[category]     = category_correct_counter.setdefault(category,     0) + int(x == y)
+        
+        avg_acc = sum(category_correct_counter.values()) / sum(category_total_counter.values())
+        summary_acc = {"Avg": avg_acc}
+        for category in category_correct_counter:
+            summary_acc[category] = category_correct_counter[category] / category_total_counter[category]
+        
+        return summary_acc
