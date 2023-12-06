@@ -4,7 +4,8 @@ import pandas as pd
 import tqdm
 
 from ._subject_names import SUPPORTED_DATASETS, SUBJECT_NAMES_MAP
-from ._utils import gen_prompt, format_example
+from ._utils import gen_prompt, format_example, parse_answer
+from ._error import FeedbackNotCalledError
 
 
 
@@ -42,10 +43,12 @@ class TaskGenerator:
         if self.log_dir and not os.path.exists(self.log_dir):
             os.mkdir(self.log_dir)
         
-        self._load_cache()
+        self.subject_idx = 0
+        self.problem_idx = 0
         
-        self.subject_ptr = 0
-        self.problem_ptr = 0
+        self.infer_result = []
+        
+        self._load_cache()
         
         self.total_task_num = self._get_total_task_num()
         
@@ -57,6 +60,9 @@ class TaskGenerator:
         self.pbar = None
         if kwargs.get('pbar') is not False:
             self.pbar = tqdm.tqdm(total=self.total_task_num, initial=self.start)
+        
+        self.current_problem_answer = None
+        self.feedback_flag = False
 
 
     def _load_cache(self):
@@ -83,7 +89,7 @@ class TaskGenerator:
 
     def _load_subject_df(self, dev=False):
         _sub_dir = "dev" if dev else self.sub_dir
-        subject_name = self.subject_names[self.subject_ptr]
+        subject_name = self.subject_names[self.subject_idx]
         _tasks_dir = os.path.join(self.dataset_dir, _sub_dir)
         _csv_path = os.path.join(_tasks_dir, f"{subject_name}_{_sub_dir}.csv")
         return self._read_csv(_csv_path, dev)
@@ -91,7 +97,7 @@ class TaskGenerator:
     
     def _construct_prompt_prefix(self):
         '''Construct a N-Shot prompt prefix from the `dev` subdirectory'''
-        subject_name = self.subject_names[self.subject_ptr]
+        subject_name = self.subject_names[self.subject_idx]
         prompt_prefix = gen_prompt(self.subject_dev_df, subject_name, self.max_shot)
         return prompt_prefix
     
@@ -104,30 +110,42 @@ class TaskGenerator:
             _csv_path = os.path.join(_tasks_dir, f"{subject_name}_{self.sub_dir}.csv")
             _tmp_df = self._read_csv(_csv_path)
             if self.start >= _total_task_num and self.start < (_total_task_num + _tmp_df.shape[0]):
-                self.subject_ptr = i
-                self.problem_ptr = self.start - _total_task_num
+                self.subject_idx = i
+                self.problem_idx = self.start - _total_task_num
             _total_task_num += _tmp_df.shape[0]
         return _total_task_num
+    
+    def feedback(self, answer):
+        self.feedback_flag = False
+        model_choice = parse_answer(answer)
+        result = {"subject_idx": self.subject_idx, "problem_idx": self.problem_idx, "truth": self.current_problem_answer, "guess": model_choice}
+        self.infer_result.append(result)
+    
     
     def __iter__(self):
         return self
     
     def __next__(self):
-        if self.subject_ptr >= len(self.subject_names):
-            if self.pbar:
-                self.pbar.close()
+        if self.feedback_flag:
+            if self.pbar: self.pbar.close()
+            raise FeedbackNotCalledError
+        self.feedback_flag = True
+        
+        if self.subject_idx >= len(self.subject_names):
+            if self.pbar: self.pbar.close()
             raise StopIteration
         
         prompt_prefix = self._construct_prompt_prefix()
-        prompt_problem = format_example(self.subject_val_df, self.problem_ptr, False)
+        prompt_problem = format_example(self.subject_val_df, self.problem_idx, False)
+        self.current_problem_answer = self.subject_val_df.answer.iloc[self.problem_idx]
         
         prompt = prompt_prefix + prompt_problem
         
-        self.problem_ptr += 1
-        if self.problem_ptr >= self.subject_val_df.shape[0]:
-            self.subject_ptr += 1
-            self.problem_ptr = 0
-            if self.subject_ptr < len(self.subject_names):
+        self.problem_idx += 1
+        if self.problem_idx >= self.subject_val_df.shape[0]:
+            self.subject_idx += 1
+            self.problem_idx = 0
+            if self.subject_idx < len(self.subject_names):
                 self.subject_dev_df = self._load_subject_df(dev=True)
                 self.subject_val_df = self._load_subject_df()
             

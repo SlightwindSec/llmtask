@@ -21,3 +21,8 @@ def gen_prompt(dev_df, subject, n):
     for i in range(n):
         prompt += format_example(dev_df, i)
     return prompt
+
+def parse_answer(answer):
+    for c in answer.upper():
+        if c in choices:
+            return c
