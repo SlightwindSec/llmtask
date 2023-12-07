@@ -10,7 +10,7 @@ install_requires = [
 
 setup(
     name="llmtask",
-    version="0.0.1",
+    version="0.0.2",
     author="Slightwind",
     author_email="slightwindsec@gmail.com",
     description="LLM Downstream Task Evaluation Tool.",
@@ -18,6 +18,8 @@ setup(
     long_description_content_type="text/markdown",
     url="",
     package_dir={"": "src"},
+    package_data={"": ['*.csv']},
+    include_package_data=True,
     packages=find_packages("src"),
     install_requires=install_requires,
     classifiers=[

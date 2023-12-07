@@ -1,4 +1,7 @@
 .DS_Store
 src/llmtask/test.py
+src/llmtask.egg-info
 test.py
 log
+build
+dist
