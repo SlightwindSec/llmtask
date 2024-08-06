@@ -1,6 +1,6 @@
 
 
-name = "ceval-5shot_bf16_nf4_gs64.log"
+name = "mmlu-5shot_bf16_nf4_gs64.log"
 # name = "mmlu_5shot_bf16.log"
 with open(name) as f:
     data = f.read().strip().split("\n")
