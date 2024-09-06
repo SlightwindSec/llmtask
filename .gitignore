@@ -1,4 +1,5 @@
 .DS_Store
+__pycache__
 src/llmtask/test.py
 src/llmtask.egg-info
 test.py
